@@ -10,7 +10,7 @@ def conn(host,user,passwd,db,port=3306):
         passwd,
         db,
         )
-    return c
+    return cobj
 
 def close(cobj):
     cobj.close()
