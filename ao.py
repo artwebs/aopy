@@ -9,9 +9,10 @@ class DB(object):
 
 def db(type, connstr=None, host=None, user=None, passwd=None, db=None, port=None):
     dbs = {
-        'mysql': Mysql(connstr, host, user, passwd, db, port)
+        'mysql': Mysql(connstr, host, user, passwd, db, port),
+        'postgresql': Postgresql(connstr, host, user, passwd, db, port)
     }
-    return dbs.get('mysql')
+    return dbs.get(type)
 
 '''
 print(table('test', 'dev_').where('id=?',1).find())
@@ -290,7 +291,9 @@ class DBBase(object):
         self._conn=None
 
 class Mysql(DBBase):
-    def __init__(self, connstr=None, host=None, user=None, passwd=None, db=None, port=3306):
+    def __init__(self, connstr=None, host=None, user=None, passwd=None, db=None, port=None):
+        if port is None:
+            port=3306
         DBBase.__init__(self, connstr, host, user, passwd, db, port)
 
     def conn(self):
@@ -304,6 +307,27 @@ class Mysql(DBBase):
     def format(self, sql, *args):
         DBBase.format(self, sql,*args)
         sql=sql.replace('?', '%s')
+        return sql
+
+class Postgresql(DBBase):
+    def __init__(self, connstr=None, host=None, user=None, passwd=None, db=None, port=None):
+        if port is None:
+            port = 5432
+        DBBase.__init__(self, connstr, host, user, passwd, db, port)
+
+    def conn(self):
+        import psycopg2
+        import psycopg2.extras
+        if not DBBase.conn(self):
+            self._conn = psycopg2.connect(
+                host=self._host, port=self._port, user=self._user, password=self._passwd, database=self._db)
+        if self._cursor is None:
+            self._cursor = self._conn.cursor(
+                cursor_factory=psycopg2.extras.RealDictCursor)
+
+    def format(self, sql, *args):
+        DBBase.format(self, sql, *args)
+        sql = sql.replace('?', '%s')
         return sql
 
 class DBParamer(object):
