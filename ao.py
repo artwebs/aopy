@@ -1,7 +1,11 @@
 #-*- coding:utf-8 -*-
 import traceback
+
+'''
+数据库
+'''
 class DB(object):
-    _db=None
+    db=None
 
 def db(type, connstr=None, host=None, user=None, passwd=None, db=None, port=None):
     dbs = {
@@ -9,54 +13,65 @@ def db(type, connstr=None, host=None, user=None, passwd=None, db=None, port=None
     }
     return dbs.get('mysql')
 
-
-def table(name, perfix=None, todb=None):
-    if todb is None:
-        todb = DB._db
-    return Table(name,perfix,todb)
-
+'''
+print(table('test', 'dev_').where('id=?',1).find())
+print(table(table('test', 'dev_').field('id').where("id<3")).where('id=?', 5).select())
+'''
+def table(name, perfix=None, db=None,alias=None):
+    if db is None:
+        db = DB.db
+    if isinstance(name,Table):
+        perfix=""
+        if alias is None:
+            alias='t'
+        (sql, *args) = name.to_sql(alias)
+        return Table(sql, perfix, db, *args)
+    return Table(name, perfix, db)
 
 class Table(object):
-    __db = None
-    __name = ""
-    __perfix = "system_"
-    __field = ""
-    __where = None
-    __join = None
-    __order = ""
-    __group = ""
-    __limit = ""
-    __having = ""
+    def __init__(self, name=None, perfix="system_", db=None,args=[]):
+        self._field = ""
+        self._where = None
+        self._join = None
+        self._order = ""
+        self._group = ""
+        self._limit = ""
+        self._having = ""
+        self._name = name
+        self._perfix = perfix
+        self._db = db
+        self._args = args
 
-    def __init__(self, name=None, perfix=None, todb=None):
-        self.__name = name
-        self.__perfix = perfix
-        self.__db = todb
+    def to_sql(self, alias=None):
+        _sql = "select "
+        _args = []
+        _args.extend(self._args)
+        if self._field != "":
+            _sql += self._field
+        else:
+            _sql += "*"
+        _sql += " from "+self._perfix+self._name+" "
+
+        if self._join is not None:
+            _sql += " " + self._join._format
+            _args.extend(self._join._args)
+        if self._where is not None:
+            _sql += " where "+self._where._format
+            _args.extend(self._where._args)
+        if self._group != "":
+            _sql += " group by "+self._group+" "
+        if self._order != "":
+            _sql += " order by "+self._order
+
+        if self._limit != "":
+            _sql += " limit "+self._limit
+        if alias is None:
+            return (_sql, *_args)
+        else:
+            return ("("+_sql+") "+alias, *_args)
 
     def select(self):
-        __sql = "select "
-        __args = []
-        if self.__field != "":
-            __sql += self.__field
-        else:
-            __sql += "*"
-        __sql += " from "+self.__perfix+self.__name+" "
-
-        if self.__join is not None:
-            __sql+= " " + self.__join._format
-            __args.extend(self.__join._args)
-        if self.__where is not None:
-            __sql += " where "+self.__where._format
-            __args.extend(self.__where._args)
-        if self.__group != "":
-            __sql += " group by "+self.__group+" "
-        if self.__order != "":
-            __sql += " order by "+self.__order
-
-        if self.__limit != "":
-            __sql += " limit "+self.__limit
-        
-        return self.__db.query(__sql, *__args)
+        return self._db.query(*self.to_sql())
 
     def find(self):
         self.limit('0,1')
@@ -67,128 +82,124 @@ class Table(object):
             return {}
 
     def total(self):
-        __sql = "select count(*) as c "
-        __args = []
-        __sql += " from "+self.__perfix+self.__name+" "
+        _sql = "select count(*) as c "
+        _args = []
+        _sql += " from "+self._perfix+self._name+" "
 
-        if self.__join is not None:
-            __sql += " " + self.__join._format
-            __args.extend(self.__join._args)
-        if self.__where is not None:
-            __sql += " where "+self.__where._format
-            __args.extend(self.__where._args)
-        if self.__group != "":
-            __sql += " group by "+self.__group+" "
-        rs = self.__db.query(__sql, *__args)
-        if self.__group!="":
+        if self._join is not None:
+            _sql += " " + self._join._format
+            _args.extend(self._join._args)
+        if self._where is not None:
+            _sql += " where "+self._where._format
+            _args.extend(self._where._args)
+        if self._group != "":
+            _sql += " group by "+self._group+" "
+        rs = self._db.query(_sql, *_args)
+        if self._group!="":
             return len(rs)
         else:
             return rs[0]['c']
 
+    '''
+    table('test', 'dev_').insert(id=None,name='历史2')
+    '''
     def insert(self,**args):
-        __sql = "insert into "+self.__perfix+self.__name+" "
-        __field=""
-        __value=""
-        __vars=[]
+        _sql = "insert into "+self._perfix+self._name+" "
+        _field=""
+        _value=""
+        _vars=[]
         for key in args:
-            if __field!="":
-                __field+=","
-                __value+=","
-            __field+=key
+            if _field!="":
+                _field+=","
+                _value+=","
+            _field+=key
             if args[key] is None:
-                __value+='null'
+                _value+='null'
             else:
-                __value+="?"
-                __vars.append(args[key])
+                _value+="?"
+                _vars.append(args[key])
 
-        __sql+= "("+__field+") values ("+__value+")"
-        return self.__db.execute(__sql,*__vars)
+        _sql+= "("+_field+") values ("+_value+")"
+        return self._db.execute(_sql,*_vars)
             
-
+    '''
+    table('test', 'dev_').where('id=?', 4).update(name='历史111')
+    '''
     def update(self,**args):
-        __sql = "update "+self.__perfix+self.__name+" set "
-        __field = ""
-        __vars = []
+        _sql = "update "+self._perfix+self._name+" set "
+        _field = ""
+        _vars = []
         for key in args:
-            if __field != "":
-                __field += ","
+            if _field != "":
+                _field += ","
             if args[key] is None:
-                __field += key+'=null'
+                _field += key+'=null'
             else:
-                __field += key+"=?"
-                __vars.append(args[key])
-        __sql+=__field
+                _field += key+"=?"
+                _vars.append(args[key])
+        _sql+=_field
 
-        if self.__where is not None:
-            __sql += " where "+self.__where._format
-            __vars.extend(self.__where._args)
-        return self.__db.execute(__sql, *__vars)
+        if self._where is not None:
+            _sql += " where "+self._where._format
+            _vars.extend(self._where._args)
+        return self._db.execute(_sql, *_vars)
 
     def delete(self):
-        __sql = "delete from "+self.__perfix+self.__name+" "
-        __vars = []
-        if self.__where is not None:
-            __sql += " where "+self.__where._format
-            __vars.extend(self.__where._args)
-        return self.__db.execute(__sql, *__vars)
+        _sql = "delete from "+self._perfix+self._name+" "
+        _vars = []
+        if self._where is not None:
+            _sql += " where "+self._where._format
+            _vars.extend(self._where._args)
+        return self._db.execute(_sql, *_vars)
 
     def field(self, sql):
-        if self.__field != "":
-            self.__field += ","
-        self.__field += sql
+        if self._field != "":
+            self._field += ","
+        self._field += sql
         return self
 
     def where(self, sql, *args, split='and'):
-        if self.__where is None:
-            self.__where = DBParamer(sql, *args)
+        if self._where is None:
+            self._where = DBParamer(sql, *args)
         else:
-            self.__where.append_split(split, sql, *args)
+            self._where.append_split(split, sql, *args)
         return self
 
     def join(self, sql, *args):
-        if self.__join is None:
-            self.__join = DBParamer(sql, *args)
+        if self._join is None:
+            self._join = DBParamer(sql, *args)
         else:
-            self.__join.append(sql, *args)
+            self._join.append(sql, *args)
         return self
 
     def order(self, sql):
-        self.__order = sql
+        self._order = sql
         return self
 
     def group(self, sql):
-        self.__group = sql
+        self._group = sql
         return
 
     def limit(self, sql):
-        self.__limit = sql
+        self._limit = sql
         return self
 
     def error(self):
-        return self.__db._error
+        return self._db._error
 
 class DBBase(object):
-    '''
-    classdocs
-    '''
-    _conn = None
-    _cursor = None
-    _connstr = None
-    _host = None
-    _port = None
-    _user = None
-    _passwd = None
-    _db = None
-    _error=None
-    _auto=True
 
     def __init__(self, connstr=None, host=None, user=None, passwd=None, db=None, port=None):
+        self._conn = None
+        self._cursor = None
         self._connstr = connstr
         self._host = host
         self._user = user
         self._passwd = passwd
         self._db = db
         self._port = port
+        self._error = None
+        self._auto = True
 
 
     def conn(self):
@@ -211,6 +222,9 @@ class DBBase(object):
             self.close(self._auto)
         return rscount
 
+    '''
+    table.query('select * from dev_test')
+    '''
     def query(self, sql,*args):
         sql=self.format(sql,*args)
         self.conn()
@@ -224,7 +238,19 @@ class DBBase(object):
         finally:
             self.close(self._auto)
         return rs
-    ##事务
+    '''
+    事务
+    def tran():
+        try:
+            print(table('test', 'dev_').where('id=?', 4).update(name='历史111'))
+            print(table('test', 'dev_').where('id=?', 4).select())
+            # raise Exception("hello")
+        except Exception as e:
+            DB.db.rollback()
+            print(traceback.print_exc())
+       
+    DB.db.transaction(tran)
+    '''
     def transaction(self,fun,**args):
         self.conn()
         self._auto=False
@@ -263,9 +289,6 @@ class DBBase(object):
             self._conn.close()
         self._conn=None
 
-
-
-
 class Mysql(DBBase):
     def __init__(self, connstr=None, host=None, user=None, passwd=None, db=None, port=3306):
         DBBase.__init__(self, connstr, host, user, passwd, db, port)
@@ -284,15 +307,12 @@ class Mysql(DBBase):
         return sql
 
 class DBParamer(object):
-    _index = 0
-    _format = ""
-    _args = []
 
     def __init__(self, sql, *args):
         self._args=[]
         self._format = sql
         self._args.extend(args)
-        self._index += 1
+        self._index = 1
 
     def append(self, sql, *args):
         self._format += " "+sql+" "
