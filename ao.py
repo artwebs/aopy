@@ -1,5 +1,5 @@
 #-*- coding:utf-8 -*-
-
+import traceback
 class DB(object):
     _db=None
 
@@ -28,7 +28,7 @@ class Table(object):
     __limit = ""
     __having = ""
 
-    def __init__(self, name, perfix=None, todb=None):
+    def __init__(self, name=None, perfix=None, todb=None):
         self.__name = name
         self.__perfix = perfix
         self.__db = todb
@@ -55,6 +55,7 @@ class Table(object):
 
         if self.__limit != "":
             __sql += " limit "+self.__limit
+        
         return self.__db.query(__sql, *__args)
 
     def find(self):
@@ -124,7 +125,12 @@ class Table(object):
         return self.__db.execute(__sql, *__vars)
 
     def delete(self):
-        pass
+        __sql = "delete from "+self.__perfix+self.__name+" "
+        __vars = []
+        if self.__where is not None:
+            __sql += " where "+self.__where._format
+            __vars.extend(self.__where._args)
+        return self.__db.execute(__sql, *__vars)
 
     def field(self, sql):
         if self.__field != "":
@@ -174,6 +180,7 @@ class DBBase(object):
     _passwd = None
     _db = None
     _error=None
+    _auto=True
 
     def __init__(self, connstr=None, host=None, user=None, passwd=None, db=None, port=None):
         self._connstr = connstr
@@ -185,77 +192,96 @@ class DBBase(object):
 
 
     def conn(self):
-        print(self._connstr)
-        pass
+        return self._conn is not None
 
     def execute(self, sql,*args):
-        self.format(sql, *args)
+        sql=self.format(sql, *args)
         self.conn()
         rscount=0
         try:
             self._cursor.execute(sql, args)
             rscount = self._cursor.rowcount
-            self._conn.commit()
+            if self._auto:
+                self.commit()
         except Exception as e:
-            self._conn.rollback()
+            self.rollback()
             self._error=e
+            print(traceback.print_exc())
         finally:
-            self.close()
+            self.close(self._auto)
         return rscount
 
     def query(self, sql,*args):
-        self.format(sql,*args)
+        sql=self.format(sql,*args)
         self.conn()
-        self._cursor.execute(sql,args)
-        rs = self._cursor.fetchall()
+        rs=[]
+        try:
+            self._cursor.execute(sql,args)
+            rs = self._cursor.fetchall()
+        except Exception as e:
+            self._error = e
+            print(traceback.print_exc())
+        finally:
+            self.close(self._auto)
+        return rs
+    ##事务
+    def transaction(self,fun,**args):
+        self.conn()
+        self._auto=False
+        rs = fun(**args)
+        self.commit()
+        self._auto = True
         self.close()
         return rs
+
+    def commit(self,is_auto=True):
+        if not is_auto:
+            return
+        self._conn.commit()
+
+    def rollback(self, is_auto=True):
+        if not is_auto:
+            return
+        self._conn.rollback()
 
     def format(self,sql,*args):
         for arg in args:
             if isinstance(arg,int):
-                sql = sql.replace("%s", str(arg),1)
+                sql = sql.replace("?", str(arg),1)
             else:
-                sql = sql.replace("%s", "'"+arg+"'",1)
+                sql = sql.replace("?", "'"+arg+"'",1)
         print(sql)
+        return sql
 
-    def close(self):
-        self._cursor.close()
-        self._conn.close()
+    def close(self,is_auto=True):
+        if self._cursor is not None:
+            self._cursor.close()
+        self._cursor = None
+        if not is_auto:
+            return
+        if self._conn is not None :
+            self._conn.close()
+        self._conn=None
+
 
 
 
 class Mysql(DBBase):
-
     def __init__(self, connstr=None, host=None, user=None, passwd=None, db=None, port=3306):
         DBBase.__init__(self, connstr, host, user, passwd, db, port)
 
     def conn(self):
         import pymysql
-        self._conn = pymysql.connect(
-            host=self._host, port=self._port, user=self._user, passwd=self._passwd, db=self._db, charset='utf8')
-        self._cursor = self._conn.cursor(cursor=pymysql.cursors.DictCursor)
+        if not DBBase.conn(self):
+            self._conn = pymysql.connect(
+                host=self._host, port=self._port, user=self._user, passwd=self._passwd, db=self._db, charset='utf8')
+        if self._cursor is None:
+            self._cursor = self._conn.cursor(cursor=pymysql.cursors.DictCursor)
 
     def format(self, sql, *args):
-        sql.replace('?','%s')
-        for arg in args:
-            if isinstance(arg, int):
-                sql = sql.replace("%s", str(arg), 1)
-            elif arg is None:
-                sql = sql.replace("%s", 'null', 1)
-            else:
-                sql = sql.replace("%s", "'"+arg+"'", 1)
-        print(sql)
-
-    def execute(self, sql, *args):
-        sql = sql.replace('?', '%s')
-        return DBBase.execute(self, sql, *args)
-
-    def query(self, sql, *args):
-        sql = sql.replace('?', '%s')
-        return DBBase.query(self, sql, *args)
-
-
+        DBBase.format(self, sql,*args)
+        sql=sql.replace('?', '%s')
+        return sql
 
 class DBParamer(object):
     _index = 0
@@ -263,13 +289,14 @@ class DBParamer(object):
     _args = []
 
     def __init__(self, sql, *args):
+        self._args=[]
         self._format = sql
-        self._args.append(*args)
+        self._args.extend(args)
         self._index += 1
 
     def append(self, sql, *args):
         self._format += " "+sql+" "
-        self._args.append(*args)
+        self._args.extend(args)
         self._index += 1
 
     def append_split(self, split, sql, *args):
@@ -279,5 +306,5 @@ class DBParamer(object):
             self._format = self._format+" "+split+" (" + sql + ") "
         else:
             self._format += " "+split+" "+sql
-        self._args.append(*args)
+        self._args.extend(args)
         self._index += 1
