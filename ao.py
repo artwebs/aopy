@@ -1,5 +1,5 @@
 #-*- coding:utf-8 -*-
-import traceback
+import traceback,time
 
 '''
 数据库
@@ -7,10 +7,14 @@ import traceback
 class DB(object):
     db=None
 
-def db(type, connstr=None, host=None, user=None, passwd=None, db=None, port=None):
+def now(format="%Y-%m-%d %H:%M:%S"):
+        return time.strftime(format)
+
+
+def db(type, connstr=None, host=None, user=None, passwd=None, db=None, port=None,auto=True):
     dbs = {
-        'mysql': Mysql(connstr, host, user, passwd, db, port),
-        'postgresql': Postgresql(connstr, host, user, passwd, db, port)
+        'mysql': Mysql(connstr, host, user, passwd, db, port, auto),
+        'postgresql': Postgresql(connstr, host, user, passwd, db, port, auto)
     }
     return dbs.get(type)
 
@@ -25,8 +29,8 @@ def table(name, perfix=None, db=None,alias=None):
         perfix=""
         if alias is None:
             alias='t'
-        (sql, *args) = name.to_sql(alias)
-        return Table(sql, perfix, db, *args)
+        (sql, args) = name.to_sql(alias)
+        return Table(sql, perfix, db, args)
     return Table(name, perfix, db)
 
 class Table(object):
@@ -42,6 +46,9 @@ class Table(object):
         self._perfix = perfix
         self._db = db
         self._args = args
+
+    def name(self):
+        return self._perfix+self._name
 
     def to_sql(self, alias=None):
         _sql = "select "
@@ -67,9 +74,9 @@ class Table(object):
         if self._limit != "":
             _sql += " limit "+self._limit
         if alias is None:
-            return (_sql, *_args)
+            return (_sql, _args)
         else:
-            return ("("+_sql+") "+alias, *_args)
+            return ("("+_sql+") "+alias, _args)
 
     def select(self):
         return self._db.query(*self.to_sql())
@@ -159,7 +166,7 @@ class Table(object):
         self._field += sql
         return self
 
-    def where(self, sql, *args, split='and'):
+    def where(self, sql,  split='and', *args):
         if self._where is None:
             self._where = DBParamer(sql, *args)
         else:
@@ -190,7 +197,7 @@ class Table(object):
 
 class DBBase(object):
 
-    def __init__(self, connstr=None, host=None, user=None, passwd=None, db=None, port=None):
+    def __init__(self, connstr=None, host=None, user=None, passwd=None, db=None, port=None,auto=True):
         self._conn = None
         self._cursor = None
         self._connstr = connstr
@@ -200,7 +207,7 @@ class DBBase(object):
         self._db = db
         self._port = port
         self._error = None
-        self._auto = True
+        self._auto = auto
 
 
     def conn(self):
@@ -231,7 +238,7 @@ class DBBase(object):
         self.conn()
         rs=[]
         try:
-            self._cursor.execute(sql,args)
+            self._cursor.execute(sql,*args)
             rs = self._cursor.fetchall()
         except Exception as e:
             self._error = e
@@ -276,7 +283,7 @@ class DBBase(object):
             if isinstance(arg,int):
                 sql = sql.replace("?", str(arg),1)
             else:
-                sql = sql.replace("?", "'"+arg+"'",1)
+                sql = sql.replace("?", "'"+str(arg)+"'", 1)
         print(sql)
         return sql
 
@@ -291,10 +298,10 @@ class DBBase(object):
         self._conn=None
 
 class Mysql(DBBase):
-    def __init__(self, connstr=None, host=None, user=None, passwd=None, db=None, port=None):
+    def __init__(self, connstr=None, host=None, user=None, passwd=None, db=None, port=None, auto=True):
         if port is None:
             port=3306
-        DBBase.__init__(self, connstr, host, user, passwd, db, port)
+        DBBase.__init__(self, connstr, host, user, passwd, db, port, auto)
 
     def conn(self):
         import pymysql
@@ -310,10 +317,10 @@ class Mysql(DBBase):
         return sql
 
 class Postgresql(DBBase):
-    def __init__(self, connstr=None, host=None, user=None, passwd=None, db=None, port=None):
+    def __init__(self, connstr=None, host=None, user=None, passwd=None, db=None, port=None, auto=True):
         if port is None:
             port = 5432
-        DBBase.__init__(self, connstr, host, user, passwd, db, port)
+        DBBase.__init__(self, connstr, host, user, passwd, db, port, auto)
 
     def conn(self):
         import psycopg2
